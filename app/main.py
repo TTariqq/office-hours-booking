@@ -1,15 +1,22 @@
+import logging
+import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import sessionmaker
+from starlette.middleware.sessions import SessionMiddleware
 
+from app.auth.deps import LoginRequired
 from app.db import Base, engine as default_engine
 from app.models import models  # importing the models registers their tables on Base
+from app.routes import auth as auth_routes
+from app.routes import pages as page_routes
+from app.web.templating import WEB_DIR, templates
 
-WEB_DIR = Path(__file__).resolve().parent / "web"
-templates = Jinja2Templates(directory=WEB_DIR / "templates")
+# Used only when OHB_SECRET_KEY is missing, so local development still runs.
+DEV_SECRET_KEY = "dev-only-insecure-key-set-OHB_SECRET_KEY-in-production"
 
 
 def create_app(db_engine=default_engine):
@@ -22,11 +29,34 @@ def create_app(db_engine=default_engine):
         yield
 
     app = FastAPI(title="Office Hours Booking", lifespan=lifespan)
+
+    secret_key = os.environ.get("OHB_SECRET_KEY")
+    if not secret_key:
+        logging.warning("OHB_SECRET_KEY is not set; using the insecure development key.")
+        secret_key = DEV_SECRET_KEY
+
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=secret_key,
+        same_site="lax",
+        https_only=False,
+    )
+
+    # Dependencies and routes get their sessions from this app's own engine.
+    app.state.session_factory = sessionmaker(bind=db_engine)
+
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
+
+    @app.exception_handler(LoginRequired)
+    def redirect_to_login(request, exc):
+        return RedirectResponse("/login", status_code=303)
 
     @app.get("/")
     def home(request: Request):
         return templates.TemplateResponse(request, "home.html")
+
+    app.include_router(auth_routes.router)
+    app.include_router(page_routes.router)
 
     return app
 

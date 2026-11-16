@@ -2,3 +2,16 @@ body {
   font-family: system-ui, sans-serif;
   margin: 2rem;
 }
+
+form {
+  margin-top: 1rem;
+}
+
+label {
+  display: block;
+  margin-top: 0.5rem;
+}
+
+.error {
+  color: #b00020;
+}

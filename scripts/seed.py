@@ -1,7 +1,5 @@
 """Add demo users to the database. Running it twice changes nothing."""
 
-import hashlib
-import os
 import sys
 from pathlib import Path
 
@@ -9,13 +7,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
+from app.auth.security import hash_password
 from app.db import Base, SessionLocal, engine
 from app.models.models import User
-
-# How many times the password hash function runs. Higher is slower and safer.
-PBKDF2_ROUNDS = 100_000
 
 SEED_USERS = [
     {
@@ -43,13 +38,6 @@ SEED_USERS = [
         "password": "student-yousef-pass",
     },
 ]
-
-
-def hash_password(password):
-    """Hash a password with a fresh random salt. The salt is stored with the hash."""
-    salt = os.urandom(16)
-    key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ROUNDS)
-    return f"pbkdf2_sha256${PBKDF2_ROUNDS}${salt.hex()}${key.hex()}"
 
 
 def seed(session):

@@ -6,7 +6,7 @@ MIN_LEAD_MIN = 60
 # A block may not be scheduled further ahead than this.
 MAX_AHEAD_DAYS = 14
 
-# One instructor may have at most this many active bookings per slot.
+# Max active bookings per student with one instructor.
 MAX_ACTIVE_PER_INSTRUCTOR = 2
 
 # A student cannot cancel a booking closer than this to its start.
