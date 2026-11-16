@@ -1,6 +1,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
@@ -44,6 +45,9 @@ def create_app(db_engine=default_engine):
 
     # Dependencies and routes get their sessions from this app's own engine.
     app.state.session_factory = sessionmaker(bind=db_engine)
+
+    # Routes read "now" only through this hook, so tests can freeze it.
+    app.state.clock = lambda: datetime.now(timezone.utc)
 
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 

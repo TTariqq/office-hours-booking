@@ -12,5 +12,40 @@
   <form method="post" action="/logout">
     <button type="submit">Log out</button>
   </form>
+
+  <h3>Publish a block</h3>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/instructor/blocks">
+    <label for="date">Date (Riyadh)</label>
+    <input type="date" id="date" name="date" required>
+    <label for="start_time">Start time (Riyadh)</label>
+    <input type="time" id="start_time" name="start_time" required>
+    <label for="end_time">End time (Riyadh)</label>
+    <input type="time" id="end_time" name="end_time" required>
+    <label for="slot_length">Slot length</label>
+    <select id="slot_length" name="slot_length">
+      <option value="10">10 minutes</option>
+      <option value="15">15 minutes</option>
+      <option value="20">20 minutes</option>
+      <option value="30">30 minutes</option>
+    </select>
+    <label for="location">Location</label>
+    <input type="text" id="location" name="location" maxlength="120" required>
+    <button type="submit">Publish block</button>
+  </form>
+
+  <h3>Your blocks</h3>
+  {% if blocks %}
+  <ul>
+    {% for block in blocks %}
+    <li>
+      {{ block.date }}, {{ block.start }}-{{ block.end }} in {{ block.location }}
+      <br>Slots: {{ block.slots | join(", ") }}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No blocks yet.</p>
+  {% endif %}
 </body>
 </html>
