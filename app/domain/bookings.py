@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from app.domain.constants import (
     CANCEL_CUTOFF_MIN,
+    MAX_ACTIVE_PER_INSTRUCTOR,
     MAX_AHEAD_DAYS,
     MIN_LEAD_MIN,
     TOPIC_MAX_CHARS,
@@ -52,3 +53,9 @@ def check_cancellable(slot_start_utc, now_utc):
     # Exactly the cutoff is still in time; anything less is not.
     if slot_start_utc - now_utc < timedelta(minutes=CANCEL_CUTOFF_MIN):
         raise BookingError("Too late to cancel: less than 120 minutes before the start")
+
+
+def check_instructor_limit(active_count):
+    """Raise BookingError when the student already holds too many bookings with one instructor."""
+    if active_count >= MAX_ACTIVE_PER_INSTRUCTOR:
+        raise BookingError("You already have 2 active bookings with this instructor")

@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -11,6 +11,7 @@ from app.domain.blocks import BlockError, plan_block
 from app.domain.bookings import (
     BookingError,
     check_cancellable,
+    check_instructor_limit,
     check_slot_bookable,
     clean_topic,
 )
@@ -184,6 +185,23 @@ def create_booking(
     )
     if already_booked is not None:
         return student_page(request, user, db, SLOT_TAKEN, status_code=409)
+
+    active_with_instructor = db.scalar(
+        select(func.count())
+        .select_from(Booking)
+        .join(Slot, Booking.slot_id == Slot.id)
+        .join(Block, Slot.block_id == Block.id)
+        .where(
+            Booking.student_id == user.id,
+            Booking.status == "active",
+            Slot.start_utc > now,
+            Block.instructor_id == block.instructor_id,
+        )
+    )
+    try:
+        check_instructor_limit(active_with_instructor)
+    except BookingError as error:
+        return student_page(request, user, db, str(error), status_code=400)
 
     db.add(Booking(slot_id=slot.id, student_id=user.id, topic=topic, status="active"))
     try:
