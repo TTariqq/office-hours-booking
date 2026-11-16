@@ -12,6 +12,7 @@ from app.domain.bookings import (
     BookingError,
     check_cancellable,
     check_instructor_limit,
+    check_no_overlap,
     check_slot_bookable,
     clean_topic,
 )
@@ -200,6 +201,37 @@ def create_booking(
     )
     try:
         check_instructor_limit(active_with_instructor)
+    except BookingError as error:
+        return student_page(request, user, db, str(error), status_code=400)
+
+    existing = db.execute(
+        select(Slot.start_utc, Slot.end_utc, User.name)
+        .join(Booking, Booking.slot_id == Slot.id)
+        .join(Block, Slot.block_id == Block.id)
+        .join(User, Block.instructor_id == User.id)
+        .where(
+            Booking.student_id == user.id,
+            Booking.status == "active",
+            Slot.start_utc > now,
+        )
+        .order_by(Slot.start_utc)
+    ).all()
+
+    taken = []
+    for old_start, old_end, instructor_name in existing:
+        local_start = to_riyadh(old_start)
+        local_end = to_riyadh(old_end)
+        taken.append(
+            (
+                as_utc(old_start),
+                as_utc(old_end),
+                f"with {instructor_name} on {local_start.strftime('%Y-%m-%d')} "
+                f"{local_start.strftime('%H:%M')}-{local_end.strftime('%H:%M')}",
+            )
+        )
+
+    try:
+        check_no_overlap(as_utc(slot.start_utc), as_utc(slot.end_utc), taken)
     except BookingError as error:
         return student_page(request, user, db, str(error), status_code=400)
 

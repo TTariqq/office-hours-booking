@@ -59,3 +59,16 @@ def check_instructor_limit(active_count):
     """Raise BookingError when the student already holds too many bookings with one instructor."""
     if active_count >= MAX_ACTIVE_PER_INSTRUCTOR:
         raise BookingError("You already have 2 active bookings with this instructor")
+
+
+def check_no_overlap(new_start_utc, new_end_utc, existing):
+    """Raise BookingError when the new range overlaps one of the student's active bookings.
+
+    Ranges are half-open, [start, end), so ranges that only touch do not overlap.
+    """
+    _require_aware(new_start_utc, new_end_utc)
+
+    for start_utc, end_utc, description in existing:
+        _require_aware(start_utc, end_utc)
+        if new_start_utc < end_utc and start_utc < new_end_utc:
+            raise BookingError(f"This overlaps your booking {description}")
