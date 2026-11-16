@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_db, require_role
-from app.domain.blocks import BlockError, plan_block
+from app.domain.blocks import BlockError, check_block_cancellable, plan_block
 from app.domain.bookings import (
     BookingError,
     check_cancellable,
@@ -37,7 +37,7 @@ STATUS_LABELS = {
 }
 
 
-def block_rows(db, user):
+def block_rows(db, user, now):
     """This instructor's blocks, newest start first, with Riyadh times for the page."""
     blocks = db.scalars(
         select(Block).where(Block.instructor_id == user.id).order_by(Block.start_utc.desc())
@@ -51,6 +51,9 @@ def block_rows(db, user):
         start = to_riyadh(block.start_utc)
         rows.append(
             {
+                "id": block.id,
+                "status": block.status,
+                "can_cancel": block.status != "cancelled" and as_utc(block.start_utc) > now,
                 "date": start.strftime("%Y-%m-%d"),
                 "start": start.strftime("%H:%M"),
                 "end": to_riyadh(block.end_utc).strftime("%H:%M"),
@@ -66,7 +69,7 @@ def instructor_page(request, user, db, error=None, status_code=200):
     return templates.TemplateResponse(
         request,
         "instructor_home.html",
-        {"user": user, "blocks": block_rows(db, user), "error": error},
+        {"user": user, "blocks": block_rows(db, user, request.app.state.clock()), "error": error},
         status_code=status_code,
     )
 
@@ -361,6 +364,40 @@ def create_block(
     db.flush()
     for slot_start, slot_end in slots:
         db.add(Slot(block_id=block.id, start_utc=slot_start, end_utc=slot_end))
+    db.commit()
+
+    return RedirectResponse("/instructor", status_code=303)
+
+
+@router.post("/instructor/blocks/{block_id}/cancel")
+def cancel_block(
+    block_id: int,
+    request: Request,
+    user: User = Depends(require_role("instructor")),
+    db: Session = Depends(get_db),
+):
+    # A missing block and someone else's block get the same answer.
+    block = db.get(Block, block_id)
+    if block is None or block.instructor_id != user.id:
+        raise HTTPException(status_code=404)
+
+    try:
+        check_block_cancellable(
+            as_utc(block.start_utc), block.status, request.app.state.clock()
+        )
+    except BlockError as error:
+        return instructor_page(request, user, db, str(error), status_code=400)
+
+    # The rows stay: the block is closed by its status, and every active booking in it
+    # is cancelled by the instructor, all in one commit.
+    block.status = "cancelled"
+    active_bookings = db.scalars(
+        select(Booking)
+        .join(Slot, Booking.slot_id == Slot.id)
+        .where(Slot.block_id == block.id, Booking.status == "active")
+    ).all()
+    for booking in active_bookings:
+        booking.status = "cancelled_by_instructor"
     db.commit()
 
     return RedirectResponse("/instructor", status_code=303)

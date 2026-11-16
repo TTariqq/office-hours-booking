@@ -46,3 +46,15 @@ def plan_block(start_utc, end_utc, slot_length_min, now_utc, existing_blocks):
         slots.append((slot_start, slot_start + step))
         slot_start = slot_start + step
     return slots
+
+
+def check_block_cancellable(block_start_utc, block_status, now_utc):
+    """Raise BlockError when this block can no longer be cancelled."""
+    _require_aware(block_start_utc, now_utc)
+
+    if block_status == "cancelled":
+        raise BlockError("This block is already cancelled")
+
+    # A block starting exactly now is no longer future.
+    if block_start_utc <= now_utc:
+        raise BlockError("Only future blocks can be cancelled")

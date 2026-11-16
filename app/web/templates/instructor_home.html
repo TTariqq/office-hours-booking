@@ -40,7 +40,13 @@
     {% for block in blocks %}
     <li>
       {{ block.date }}, {{ block.start }}-{{ block.end }} in {{ block.location }}
+      {% if block.status == "cancelled" %}(cancelled){% endif %}
       <br>Slots: {{ block.slots | join(", ") }}
+      {% if block.can_cancel %}
+      <form method="post" action="/instructor/blocks/{{ block.id }}/cancel">
+        <button type="submit">Cancel block</button>
+      </form>
+      {% endif %}
     </li>
     {% endfor %}
   </ul>
