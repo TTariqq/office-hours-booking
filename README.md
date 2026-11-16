@@ -111,7 +111,7 @@ Rules you will hit while trying this. For the instructor: a block must start in 
 between 30 and 240 minutes, use a slot length of 10, 15, 20 or 30 minutes, and not overlap another
 of your own open blocks. For the student: only slots that start at least 60 minutes from now and at
 most 14 days ahead are shown, a student may hold at most 2 active bookings with the same instructor,
-and a booking can only be cancelled more than 120 minutes before it starts. All times you type and
+and a booking can only be cancelled at least 120 minutes before it starts. All times you type and
 see are Riyadh time; the database stores UTC.
 
 ## Notes
