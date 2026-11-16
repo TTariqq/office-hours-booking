@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -51,6 +51,15 @@ class Booking(Base):
     """A student's reservation of one slot."""
 
     __tablename__ = "bookings"
+    __table_args__ = (
+        # At most one active booking per slot, enforced by the database itself.
+        Index(
+            "uq_booking_active_slot",
+            "slot_id",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     slot_id: Mapped[int] = mapped_column(ForeignKey("slots.id"))

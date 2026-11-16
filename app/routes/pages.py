@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_db, require_role
 from app.domain.blocks import BlockError, plan_block
-from app.models.models import Block, Slot, User
+from app.domain.bookings import BookingError, check_slot_bookable, clean_topic
+from app.models.models import Block, Booking, Slot, User
 from app.timeutil import as_utc, riyadh_to_utc, to_riyadh
 from app.web.templating import templates
 
@@ -14,6 +16,7 @@ router = APIRouter()
 LOCATION_MAX_CHARS = 120
 LOCATION_ERROR = "location is required (max 120 characters)"
 FORMAT_ERROR = "invalid date or time"
+SLOT_TAKEN = "This slot was just booked by someone else"
 
 
 def block_rows(db, user):
@@ -50,9 +53,134 @@ def instructor_page(request, user, db, error=None, status_code=200):
     )
 
 
+def open_slot_groups(db, now):
+    """Bookable slots, grouped by instructor name, with Riyadh times for the page."""
+    has_active_booking = (
+        select(Booking.id)
+        .where(Booking.slot_id == Slot.id, Booking.status == "active")
+        .exists()
+    )
+    rows = db.execute(
+        select(Slot, Block, User.name)
+        .join(Block, Slot.block_id == Block.id)
+        .join(User, Block.instructor_id == User.id)
+        .where(
+            Slot.start_utc > now,
+            Block.status != "cancelled",
+            ~has_active_booking,
+        )
+        .order_by(Slot.start_utc)
+    ).all()
+
+    groups = {}
+    for slot, block, instructor_name in rows:
+        start = to_riyadh(slot.start_utc)
+        groups.setdefault(instructor_name, []).append(
+            {
+                "id": slot.id,
+                "date": start.strftime("%Y-%m-%d"),
+                "start": start.strftime("%H:%M"),
+                "end": to_riyadh(slot.end_utc).strftime("%H:%M"),
+                "location": block.location,
+            }
+        )
+    return [{"instructor": name, "slots": slots} for name, slots in groups.items()]
+
+
+def student_booking_rows(db, user):
+    """This student's active bookings, earliest slot first."""
+    rows = db.execute(
+        select(Booking, Slot, Block, User.name)
+        .join(Slot, Booking.slot_id == Slot.id)
+        .join(Block, Slot.block_id == Block.id)
+        .join(User, Block.instructor_id == User.id)
+        .where(Booking.student_id == user.id, Booking.status == "active")
+        .order_by(Slot.start_utc)
+    ).all()
+
+    bookings = []
+    for booking, slot, block, instructor_name in rows:
+        start = to_riyadh(slot.start_utc)
+        bookings.append(
+            {
+                "date": start.strftime("%Y-%m-%d"),
+                "start": start.strftime("%H:%M"),
+                "end": to_riyadh(slot.end_utc).strftime("%H:%M"),
+                "instructor": instructor_name,
+                "location": block.location,
+                "topic": booking.topic,
+            }
+        )
+    return bookings
+
+
+def student_page(request, user, db, error=None, status_code=200):
+    """Render the student home page, optionally with an error message."""
+    return templates.TemplateResponse(
+        request,
+        "student_home.html",
+        {
+            "user": user,
+            "open_slots": open_slot_groups(db, request.app.state.clock()),
+            "bookings": student_booking_rows(db, user),
+            "error": error,
+        },
+        status_code=status_code,
+    )
+
+
 @router.get("/student")
-def student_home(request: Request, user: User = Depends(require_role("student"))):
-    return templates.TemplateResponse(request, "student_home.html", {"user": user})
+def student_home(
+    request: Request,
+    user: User = Depends(require_role("student")),
+    db: Session = Depends(get_db),
+):
+    return student_page(request, user, db)
+
+
+@router.post("/student/bookings")
+def create_booking(
+    request: Request,
+    user: User = Depends(require_role("student")),
+    db: Session = Depends(get_db),
+    slot_id: str = Form(""),
+    topic: str = Form(""),
+):
+    # The role check above already ran, so an instructor never reaches these checks.
+    try:
+        slot_pk = int(slot_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404)
+
+    slot = db.get(Slot, slot_pk)
+    if slot is None:
+        raise HTTPException(status_code=404)
+    block = db.get(Block, slot.block_id)
+    if block is None:
+        raise HTTPException(status_code=404)
+
+    now = request.app.state.clock()
+    try:
+        topic = clean_topic(topic)
+        check_slot_bookable(as_utc(slot.start_utc), block.status, now)
+    except BookingError as error:
+        return student_page(request, user, db, str(error), status_code=400)
+
+    already_booked = db.scalar(
+        select(Booking.id).where(Booking.slot_id == slot.id, Booking.status == "active")
+    )
+    if already_booked is not None:
+        return student_page(request, user, db, SLOT_TAKEN, status_code=409)
+
+    db.add(Booking(slot_id=slot.id, student_id=user.id, topic=topic, status="active"))
+    try:
+        db.commit()
+    except IntegrityError:
+        # Another student committed first; the database refused the second row.
+        db.rollback()
+        return student_page(request, user, db, SLOT_TAKEN, status_code=409)
+
+    return RedirectResponse("/student", status_code=303)
 
 
 @router.get("/instructor")

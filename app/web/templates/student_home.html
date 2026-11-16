@@ -12,5 +12,44 @@
   <form method="post" action="/logout">
     <button type="submit">Log out</button>
   </form>
+
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+  <h3>Open slots</h3>
+  {% if open_slots %}
+    {% for group in open_slots %}
+    <h4>{{ group.instructor }}</h4>
+    <ul>
+      {% for slot in group.slots %}
+      <li>
+        {{ slot.date }}, {{ slot.start }}-{{ slot.end }} in {{ slot.location }}
+        <form method="post" action="/student/bookings">
+          <input type="hidden" name="slot_id" value="{{ slot.id }}">
+          <label for="topic-{{ slot.id }}">Topic (optional)</label>
+          <input type="text" id="topic-{{ slot.id }}" name="topic" maxlength="200">
+          <button type="submit">Book</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endfor %}
+  {% else %}
+  <p>No open slots.</p>
+  {% endif %}
+
+  <h3>My bookings</h3>
+  {% if bookings %}
+  <ul>
+    {% for booking in bookings %}
+    <li>
+      {{ booking.date }}, {{ booking.start }}-{{ booking.end }} with {{ booking.instructor }}
+      in {{ booking.location }}
+      {% if booking.topic %}<br>Topic: {{ booking.topic }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No bookings yet.</p>
+  {% endif %}
 </body>
 </html>
