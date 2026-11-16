@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -38,16 +38,49 @@ STATUS_LABELS = {
 
 
 def block_rows(db, user, now):
-    """This instructor's blocks, newest start first, with Riyadh times for the page."""
+    """This instructor's upcoming blocks, earliest start first, with their slots.
+
+    A block is upcoming while its end is still ahead of now. Each slot carries its
+    state and, while it is booked, the student holding it and their topic.
+    """
     blocks = db.scalars(
-        select(Block).where(Block.instructor_id == user.id).order_by(Block.start_utc.desc())
+        select(Block).where(Block.instructor_id == user.id).order_by(Block.start_utc)
     ).all()
 
     rows = []
     for block in blocks:
-        slot_starts = db.scalars(
-            select(Slot.start_utc).where(Slot.block_id == block.id).order_by(Slot.start_utc)
+        if as_utc(block.end_utc) <= now:
+            continue
+
+        # One row per slot: the outer join finds the active booking, if there is one.
+        slot_rows = db.execute(
+            select(Slot, Booking, User.name)
+            .outerjoin(
+                Booking, and_(Booking.slot_id == Slot.id, Booking.status == "active")
+            )
+            .outerjoin(User, Booking.student_id == User.id)
+            .where(Slot.block_id == block.id)
+            .order_by(Slot.start_utc)
         ).all()
+
+        slots = []
+        for slot, booking, student_name in slot_rows:
+            if block.status == "cancelled":
+                state = "cancelled"
+            elif booking is not None:
+                state = "booked"
+            else:
+                state = "open"
+            slots.append(
+                {
+                    "start": to_riyadh(slot.start_utc).strftime("%H:%M"),
+                    "end": to_riyadh(slot.end_utc).strftime("%H:%M"),
+                    "state": state,
+                    "student": student_name if booking is not None else "",
+                    "topic": booking.topic if booking is not None else "",
+                }
+            )
+
         start = to_riyadh(block.start_utc)
         rows.append(
             {
@@ -58,7 +91,7 @@ def block_rows(db, user, now):
                 "start": start.strftime("%H:%M"),
                 "end": to_riyadh(block.end_utc).strftime("%H:%M"),
                 "location": block.location,
-                "slots": [to_riyadh(slot_start).strftime("%H:%M") for slot_start in slot_starts],
+                "slots": slots,
             }
         )
     return rows
