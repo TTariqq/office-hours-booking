@@ -45,6 +45,9 @@
       {{ booking.date }}, {{ booking.start }}-{{ booking.end }} with {{ booking.instructor }}
       in {{ booking.location }}
       {% if booking.topic %}<br>Topic: {{ booking.topic }}{% endif %}
+      <form method="post" action="/student/bookings/{{ booking.id }}/cancel">
+        <button type="submit">Cancel</button>
+      </form>
     </li>
     {% endfor %}
   </ul>

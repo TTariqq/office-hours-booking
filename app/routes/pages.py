@@ -6,7 +6,12 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_db, require_role
 from app.domain.blocks import BlockError, plan_block
-from app.domain.bookings import BookingError, check_slot_bookable, clean_topic
+from app.domain.bookings import (
+    BookingError,
+    check_cancellable,
+    check_slot_bookable,
+    clean_topic,
+)
 from app.models.models import Block, Booking, Slot, User
 from app.timeutil import as_utc, riyadh_to_utc, to_riyadh
 from app.web.templating import templates
@@ -17,6 +22,7 @@ LOCATION_MAX_CHARS = 120
 LOCATION_ERROR = "location is required (max 120 characters)"
 FORMAT_ERROR = "invalid date or time"
 SLOT_TAKEN = "This slot was just booked by someone else"
+NOT_ACTIVE = "This booking is not active"
 
 
 def block_rows(db, user):
@@ -103,6 +109,7 @@ def student_booking_rows(db, user):
         start = to_riyadh(slot.start_utc)
         bookings.append(
             {
+                "id": booking.id,
                 "date": start.strftime("%Y-%m-%d"),
                 "start": start.strftime("%H:%M"),
                 "end": to_riyadh(slot.end_utc).strftime("%H:%M"),
@@ -179,6 +186,37 @@ def create_booking(
         # Another student committed first; the database refused the second row.
         db.rollback()
         return student_page(request, user, db, SLOT_TAKEN, status_code=409)
+
+    return RedirectResponse("/student", status_code=303)
+
+
+@router.post("/student/bookings/{booking_id}/cancel")
+def cancel_booking(
+    booking_id: int,
+    request: Request,
+    user: User = Depends(require_role("student")),
+    db: Session = Depends(get_db),
+):
+    # A missing booking and someone else's booking get the same answer.
+    booking = db.get(Booking, booking_id)
+    if booking is None or booking.student_id != user.id:
+        raise HTTPException(status_code=404)
+
+    if booking.status != "active":
+        return student_page(request, user, db, NOT_ACTIVE, status_code=400)
+
+    slot = db.get(Slot, booking.slot_id)
+    if slot is None:
+        raise HTTPException(status_code=404)
+
+    try:
+        check_cancellable(as_utc(slot.start_utc), request.app.state.clock())
+    except BookingError as error:
+        return student_page(request, user, db, str(error), status_code=400)
+
+    # The row stays: the slot is freed by the status alone.
+    booking.status = "cancelled_by_student"
+    db.commit()
 
     return RedirectResponse("/student", status_code=303)
 
