@@ -2,7 +2,12 @@
 
 from datetime import timedelta
 
-from app.domain.constants import CANCEL_CUTOFF_MIN, TOPIC_MAX_CHARS
+from app.domain.constants import (
+    CANCEL_CUTOFF_MIN,
+    MAX_AHEAD_DAYS,
+    MIN_LEAD_MIN,
+    TOPIC_MAX_CHARS,
+)
 
 
 class BookingError(ValueError):
@@ -30,6 +35,14 @@ def check_slot_bookable(slot_start_utc, block_status, now_utc):
 
     if block_status == "cancelled" or slot_start_utc <= now_utc:
         raise BookingError("This slot is no longer available")
+
+    # Exactly the minimum lead is still in time; anything less is not.
+    if slot_start_utc - now_utc < timedelta(minutes=MIN_LEAD_MIN):
+        raise BookingError("Too soon to book: the slot starts in less than 60 minutes")
+
+    # Exactly the maximum distance ahead is still bookable.
+    if slot_start_utc > now_utc + timedelta(days=MAX_AHEAD_DAYS):
+        raise BookingError("Too far ahead: you can book at most 14 days ahead")
 
 
 def check_cancellable(slot_start_utc, now_utc):

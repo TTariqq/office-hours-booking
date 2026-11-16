@@ -3,7 +3,7 @@
 # A booking must start at least this many minutes after the student books it.
 MIN_LEAD_MIN = 60
 
-# A block may not be scheduled further ahead than this.
+# A slot may be booked at most this many days ahead.
 MAX_AHEAD_DAYS = 14
 
 # Max active bookings per student with one instructor.

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
@@ -12,6 +14,7 @@ from app.domain.bookings import (
     check_slot_bookable,
     clean_topic,
 )
+from app.domain.constants import MAX_AHEAD_DAYS, MIN_LEAD_MIN
 from app.models.models import Block, Booking, Slot, User
 from app.timeutil import as_utc, riyadh_to_utc, to_riyadh
 from app.web.templating import templates
@@ -60,7 +63,9 @@ def instructor_page(request, user, db, error=None, status_code=200):
 
 
 def open_slot_groups(db, now):
-    """Bookable slots, grouped by instructor name, with Riyadh times for the page."""
+    """Bookable slots inside the booking window, grouped by instructor name."""
+    earliest = now + timedelta(minutes=MIN_LEAD_MIN)
+    latest = now + timedelta(days=MAX_AHEAD_DAYS)
     has_active_booking = (
         select(Booking.id)
         .where(Booking.slot_id == Slot.id, Booking.status == "active")
@@ -71,7 +76,8 @@ def open_slot_groups(db, now):
         .join(Block, Slot.block_id == Block.id)
         .join(User, Block.instructor_id == User.id)
         .where(
-            Slot.start_utc > now,
+            Slot.start_utc >= earliest,
+            Slot.start_utc <= latest,
             Block.status != "cancelled",
             ~has_active_booking,
         )
