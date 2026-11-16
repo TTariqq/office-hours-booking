@@ -29,6 +29,13 @@ FORMAT_ERROR = "invalid date or time"
 SLOT_TAKEN = "This slot was just booked by someone else"
 NOT_ACTIVE = "This booking is not active"
 
+# How each booking status reads on the page. An unknown status shows itself.
+STATUS_LABELS = {
+    "active": "Booked",
+    "cancelled_by_student": "Cancelled by you",
+    "cancelled_by_instructor": "Cancelled by instructor",
+}
+
 
 def block_rows(db, user):
     """This instructor's blocks, newest start first, with Riyadh times for the page."""
@@ -101,43 +108,58 @@ def open_slot_groups(db, now):
     return [{"instructor": name, "slots": slots} for name, slots in groups.items()]
 
 
-def student_booking_rows(db, user):
-    """This student's active bookings, earliest slot first."""
+def student_booking_rows(db, user, now):
+    """Every booking this student has, split into upcoming and past.
+
+    Upcoming is earliest first, past is newest first. Only an upcoming active
+    booking can still be cancelled.
+    """
     rows = db.execute(
         select(Booking, Slot, Block, User.name)
         .join(Slot, Booking.slot_id == Slot.id)
         .join(Block, Slot.block_id == Block.id)
         .join(User, Block.instructor_id == User.id)
-        .where(Booking.student_id == user.id, Booking.status == "active")
+        .where(Booking.student_id == user.id)
         .order_by(Slot.start_utc)
     ).all()
 
-    bookings = []
+    upcoming = []
+    past = []
     for booking, slot, block, instructor_name in rows:
         start = to_riyadh(slot.start_utc)
-        bookings.append(
-            {
-                "id": booking.id,
-                "date": start.strftime("%Y-%m-%d"),
-                "start": start.strftime("%H:%M"),
-                "end": to_riyadh(slot.end_utc).strftime("%H:%M"),
-                "instructor": instructor_name,
-                "location": block.location,
-                "topic": booking.topic,
-            }
-        )
-    return bookings
+        is_upcoming = as_utc(slot.start_utc) > now
+        row = {
+            "id": booking.id,
+            "date": start.strftime("%Y-%m-%d"),
+            "start": start.strftime("%H:%M"),
+            "end": to_riyadh(slot.end_utc).strftime("%H:%M"),
+            "instructor": instructor_name,
+            "location": block.location,
+            "topic": booking.topic,
+            "status_label": STATUS_LABELS.get(booking.status, booking.status),
+            "can_cancel": is_upcoming and booking.status == "active",
+        }
+        if is_upcoming:
+            upcoming.append(row)
+        else:
+            past.append(row)
+
+    # The query is earliest first; the past list reads newest first.
+    past.reverse()
+    return {"upcoming": upcoming, "past": past}
 
 
 def student_page(request, user, db, error=None, status_code=200):
     """Render the student home page, optionally with an error message."""
+    rows = student_booking_rows(db, user, request.app.state.clock())
     return templates.TemplateResponse(
         request,
         "student_home.html",
         {
             "user": user,
             "open_slots": open_slot_groups(db, request.app.state.clock()),
-            "bookings": student_booking_rows(db, user),
+            "upcoming": rows["upcoming"],
+            "past": rows["past"],
             "error": error,
         },
         status_code=status_code,

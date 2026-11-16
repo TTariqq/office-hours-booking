@@ -38,21 +38,48 @@
   {% endif %}
 
   <h3>My bookings</h3>
-  {% if bookings %}
-  <ul>
-    {% for booking in bookings %}
-    <li>
-      {{ booking.date }}, {{ booking.start }}-{{ booking.end }} with {{ booking.instructor }}
-      in {{ booking.location }}
-      {% if booking.topic %}<br>Topic: {{ booking.topic }}{% endif %}
-      <form method="post" action="/student/bookings/{{ booking.id }}/cancel">
-        <button type="submit">Cancel</button>
-      </form>
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p>No bookings yet.</p>
-  {% endif %}
+  <section id="upcoming">
+    <h4>Upcoming</h4>
+    {% if upcoming %}
+    <ul>
+      {% for booking in upcoming %}
+      <li>
+        {{ booking.date }}, {{ booking.start }}-{{ booking.end }} with {{ booking.instructor }}
+        in {{ booking.location }} ({{ booking.status_label }})
+        {% if booking.topic %}<br>Topic: {{ booking.topic }}{% endif %}
+        {% if booking.can_cancel %}
+        <form method="post" action="/student/bookings/{{ booking.id }}/cancel">
+          <button type="submit">Cancel</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No upcoming bookings.</p>
+    {% endif %}
+  </section>
+
+  <section id="past">
+    <h4>Past</h4>
+    {% if past %}
+    <ul>
+      {% for booking in past %}
+      <li>
+        {{ booking.date }}, {{ booking.start }}-{{ booking.end }} with {{ booking.instructor }}
+        in {{ booking.location }} ({{ booking.status_label }})
+        {% if booking.topic %}<br>Topic: {{ booking.topic }}{% endif %}
+        {% if booking.can_cancel %}
+        <form method="post" action="/student/bookings/{{ booking.id }}/cancel">
+          <button type="submit">Cancel</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No past bookings.</p>
+    {% endif %}
+  </section>
 </body>
 </html>
